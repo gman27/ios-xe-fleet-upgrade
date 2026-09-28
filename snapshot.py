@@ -22,6 +22,7 @@ import difflib
 import glob
 import json
 import os
+import re
 import sys
 
 from nornir.core.filter import F
@@ -32,6 +33,13 @@ from nornir_utils.plugins.functions import print_result
 import upgrade  # reuse load_inventory() / credential handling
 
 SNAPSHOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "snapshots")
+
+
+def safe_filename_part(name: str) -> str:
+    """Sanitize a hostname before it goes into a filename. Defense in depth
+    against a malformed inventory host key (e.g. containing '/' or '..')
+    writing outside SNAPSHOT_DIR."""
+    return re.sub(r"[^A-Za-z0-9_-]", "_", name)
 
 SNAPSHOT_COMMANDS = [
     "show ip interface brief",
@@ -81,7 +89,7 @@ def capture_snapshot(task: Task, label: str) -> Result:
         captured[cmd] = {"parsed": not isinstance(data, str), "data": data}
 
     now = datetime.datetime.now()
-    path = os.path.join(SNAPSHOT_DIR, f"{task.host.name}-{label}-{now:%Y%m%d_%H%M%S}.json")
+    path = os.path.join(SNAPSHOT_DIR, f"{safe_filename_part(task.host.name)}-{label}-{now:%Y%m%d_%H%M%S}.json")
     with open(path, "w") as fh:
         json.dump(captured, fh, indent=2, default=str)
     return Result(host=task.host, result=f"saved {path}")

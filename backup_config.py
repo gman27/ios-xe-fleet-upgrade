@@ -16,6 +16,7 @@ Usage:
 import argparse
 import datetime
 import os
+import re
 import sys
 
 from nornir import InitNornir
@@ -25,6 +26,13 @@ from nornir_netmiko.tasks import netmiko_send_command
 from nornir_utils.plugins.functions import print_result
 
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs")
+
+
+def safe_filename_part(name: str) -> str:
+    """Sanitize a hostname before it goes into a filename. Defense in depth
+    against a malformed inventory host key (e.g. containing '/' or '..')
+    writing outside OUT_DIR."""
+    return re.sub(r"[^A-Za-z0-9_-]", "_", name)
 
 
 def load_inventory(num_workers=1):
@@ -58,7 +66,7 @@ def backup(task: Task) -> Result:
 
     now = datetime.datetime.now()
     header = f"! {task.host.name}  ({task.host.hostname})\n! captured {now:%Y-%m-%d %H:%M:%S}\n"
-    path = os.path.join(OUT_DIR, f"{task.host.name}-{now:%Y-%m-%d}.cfg")
+    path = os.path.join(OUT_DIR, f"{safe_filename_part(task.host.name)}-{now:%Y-%m-%d}.cfg")
     with open(path, "w") as fh:
         fh.write(header + running.rstrip() + "\n")
     return Result(host=task.host, result=f"saved {path} ({len(running.splitlines())} lines)")
