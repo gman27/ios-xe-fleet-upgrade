@@ -1,0 +1,29 @@
+---
+# Copy this file to hosts.yaml and fill in your own switches.
+# hosts.yaml is gitignored on purpose — it's real internal IPs/hostnames,
+# it should never be committed.
+HQ-CORE:
+  hostname: 10.0.0.1
+  groups: [ios_switches]
+  data:
+    site_name: "Headquarters"
+BRANCH-EAST:
+  hostname: 10.0.1.1
+  groups: [ios_switches]
+  data:
+    site_name: "Branch - East"
+BRANCH-WEST:
+  hostname: 10.0.2.1
+  groups: [ios_switches]
+  data:
+    site_name: "Branch - West"
+BRANCH-NORTH:
+  hostname: 10.0.3.1
+  groups: [ios_switches]
+  data:
+    site_name: "Branch - North"
+WAREHOUSE-01:
+  hostname: 10.0.4.1
+  groups: [ios_switches]
+  data:
+    site_name: "Warehouse 01"

@@ -1,0 +1,9 @@
+---
+# username/password are injected at runtime from NET_USER / NET_PASS env vars
+# (see upgrade.py: load_inventory()) so nothing sensitive lives in this repo.
+data:
+  target_version: "17.18.04"        # expected `show version` release after upgrade
+  image_filename: "cat9k_lite_iosxe.17.18.04.SPA.bin"
+  image_md5: "50b0a7a8cac5ae689aed9a2e06c909c9"                     # fill in from Cisco's published MD5 for the image
+  local_image_path: "images/cat9k_lite_iosxe.17.18.04.SPA.bin"
+  min_free_bytes: 1200000000        # ~1.2GB headroom check before transfer

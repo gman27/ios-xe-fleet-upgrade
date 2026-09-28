@@ -1,0 +1,19 @@
+venv/
+__pycache__/
+*.pyc
+
+# Real credentials — never commit
+credentials.enc
+creds/
+
+# Real inventory (real IPs/hostnames) — ship hosts.yaml.example instead
+inventory/hosts.yaml
+
+# Generated at runtime — device output, may contain sensitive config
+configs/
+snapshots/
+logs/
+nornir.log
+
+# Firmware images — large, and Cisco's, not ours to redistribute
+images/*.bin

@@ -1,0 +1,9 @@
+---
+ios_switches:
+  platform: ios
+  connection_options:
+    netmiko:
+      platform: cisco_ios
+      extras:
+        conn_timeout: 20
+        read_timeout_override: 30
