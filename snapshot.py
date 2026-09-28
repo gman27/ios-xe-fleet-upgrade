@@ -10,6 +10,7 @@ Usage:
     python3 snapshot.py diff --host BRANCH-EAST                 # latest pre vs latest post
     python3 snapshot.py diff --host BRANCH-EAST --pre <path> --post <path>
     python3 snapshot.py diff --host BRANCH-EAST --no-color
+    python3 snapshot.py diff --host BRANCH-EAST --html /tmp/diff.html  # side-by-side HTML report
 
 Credentials come from env vars, same as upgrade.py:
     export NET_USER=admin
@@ -172,6 +173,159 @@ def diff_raw_text(pre_text, post_text, use_color):
     return out
 
 
+def entry_to_lines(cmd, entry):
+    """Flatten one captured command's data into plain text lines for
+    line-based diffing (used by the HTML report). Structured data is
+    rendered one row per line, sorted by its ROW_KEY so equivalent rows
+    from pre/post line up positionally instead of diffing as reordered
+    noise just because the switch returned rows in a different order."""
+    if not entry["parsed"]:
+        text = entry["data"] if isinstance(entry["data"], str) else str(entry["data"])
+        return text.splitlines()
+
+    data = entry["data"]
+    if cmd == "show version":
+        row = data[0] if data else {}
+        return [f"{key}: {row[key]!r}" for key in sorted(row)]
+
+    key_fields = ROW_KEY.get(cmd)
+    sample = data[0] if data else {}
+
+    def render_row(r):
+        rest = ", ".join(f"{k}={v!r}" for k, v in sorted(r.items()))
+        return rest
+
+    if key_fields and all(kf in sample for kf in key_fields):
+        rows = sorted(data, key=lambda r: tuple(str(r.get(kf)) for kf in key_fields))
+    else:
+        rows = data
+    return [render_row(r) for r in rows]
+
+
+# CSS class names below (diff_header/diff_next/diff_add/diff_chg/diff_sub)
+# come from difflib.HtmlDiff itself, not chosen here - make_table() emits
+# spans/cells with exactly these classes, so the styling has to target them
+# to take effect. Colors follow the same green/red/yellow convention
+# Notepad++'s Compare plugin uses (insert/delete/change).
+HTML_STYLE = """
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1a1a; --muted: #6b7280; --border: #d8dee4;
+    --add: #d8f5d0; --add-fg: #14532d;
+    --sub: #ffd9d9; --sub-fg: #7f1d1d;
+    --chg: #fff2b2; --chg-fg: #713f12;
+    --header-bg: #f3f4f6;
+  }
+  body { font-family: -apple-system, Segoe UI, Helvetica, Arial, sans-serif;
+         background: var(--bg); color: var(--fg); margin: 0; padding: 24px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .meta { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+  .meta code { background: var(--header-bg); padding: 1px 5px; border-radius: 4px; }
+  .banner { font-weight: 600; padding: 10px 14px; border-radius: 6px; margin-bottom: 18px; }
+  .banner.flagged { background: var(--chg); color: var(--chg-fg); }
+  .banner.clean { background: var(--add); color: var(--add-fg); }
+  .legend { display: flex; gap: 16px; font-size: 13px; color: var(--muted); margin-bottom: 18px; }
+  .legend span.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px;
+                         margin-right: 5px; vertical-align: middle; }
+  nav.toc { border: 1px solid var(--border); border-radius: 8px; padding: 10px 16px; margin-bottom: 24px; }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; columns: 2; }
+  nav.toc li { padding: 2px 0; }
+  nav.toc a { text-decoration: none; color: var(--fg); font-size: 13px; }
+  nav.toc a.changed { color: var(--sub-fg); font-weight: 600; }
+  nav.toc a.unchanged { color: var(--muted); }
+  h2 { font-size: 15px; border-top: 1px solid var(--border); padding-top: 18px; margin-top: 28px;
+       font-family: SFMono-Regular, Consolas, monospace; }
+  .badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; margin-left: 8px; }
+  .badge.changed { background: var(--sub); color: var(--sub-fg); }
+  .badge.unchanged { background: var(--header-bg); color: var(--muted); }
+  table.diff { border-collapse: collapse; width: 100%; font-family: SFMono-Regular, Consolas, monospace;
+               font-size: 12.5px; margin-bottom: 8px; }
+  table.diff td, table.diff th { padding: 1px 6px; }
+  .diff_header { background: var(--header-bg); color: var(--muted); text-align: right;
+                 user-select: none; border-right: 1px solid var(--border); }
+  .diff_next { background: var(--header-bg); width: 1%; text-align: center; }
+  .diff_next a { color: var(--muted); text-decoration: none; }
+  table.diff td[nowrap] { white-space: pre-wrap; word-break: break-word; }
+  span.diff_add { background: var(--add); color: var(--add-fg); }
+  span.diff_sub { background: var(--sub); color: var(--sub-fg); }
+  span.diff_chg { background: var(--chg); color: var(--chg-fg); }
+</style>
+"""
+
+
+def build_html_diff(host, pre, post, pre_path, post_path):
+    """Assemble a single-page, side-by-side HTML diff across all
+    SNAPSHOT_COMMANDS, styled like Notepad++'s Compare plugin (green =
+    added, red = removed, yellow = changed). Built on difflib.HtmlDiff,
+    which already produces that table layout; this just themes it and
+    stitches one table per command into one report with a jump-to-section
+    summary, so it's viewable in any browser with no GUI app needed."""
+    differ = difflib.HtmlDiff(wrapcolumn=100)
+    sections = []
+    any_diff = False
+    for cmd in SNAPSHOT_COMMANDS:
+        pre_entry = pre.get(cmd, {"parsed": False, "data": ""})
+        post_entry = post.get(cmd, {"parsed": False, "data": ""})
+        pre_lines = entry_to_lines(cmd, pre_entry)
+        post_lines = entry_to_lines(cmd, post_entry)
+        changed = pre_lines != post_lines
+        any_diff = any_diff or changed
+        if pre_lines or post_lines:
+            table = differ.make_table(
+                pre_lines, post_lines, fromdesc="pre", todesc="post", context=True, numlines=3,
+            )
+        else:
+            table = "<p><em>no data captured on either side</em></p>"
+        anchor = re.sub(r"[^a-z0-9]+", "-", cmd.lower()).strip("-")
+        sections.append({"cmd": cmd, "anchor": anchor, "changed": changed, "table": table})
+
+    nav = "\n".join(
+        f'<li><a href="#{s["anchor"]}" class="{"changed" if s["changed"] else "unchanged"}">'
+        f'{"CHANGED" if s["changed"] else "unchanged"} - {s["cmd"]}</a></li>'
+        for s in sections
+    )
+    body = "\n".join(
+        f'<h2 id="{s["anchor"]}">{s["cmd"]}'
+        f'<span class="badge {"changed" if s["changed"] else "unchanged"}">'
+        f'{"CHANGED" if s["changed"] else "unchanged"}</span></h2>\n{s["table"]}'
+        for s in sections
+    )
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    banner_class = "flagged" if any_diff else "clean"
+    banner_text = (
+        "FLAGGED: differences found below, review before closing out the change."
+        if any_diff else "No differences found across any of the captured commands."
+    )
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Snapshot diff: {host}</title>
+{HTML_STYLE}
+</head>
+<body>
+  <h1>Snapshot diff: {host}</h1>
+  <div class="meta">
+    generated {now}<br>
+    pre: <code>{pre_path}</code><br>
+    post: <code>{post_path}</code>
+  </div>
+  <div class="banner {banner_class}">{banner_text}</div>
+  <div class="legend">
+    <span><span class="swatch" style="background:var(--add)"></span>added</span>
+    <span><span class="swatch" style="background:var(--sub)"></span>removed</span>
+    <span><span class="swatch" style="background:var(--chg)"></span>changed</span>
+  </div>
+  <nav class="toc"><ul>
+{nav}
+  </ul></nav>
+{body}
+</body>
+</html>
+"""
+
+
 def diff_snapshots(host, pre_path, post_path, use_color=True):
     with open(pre_path) as fh:
         pre = json.load(fh)
@@ -232,6 +386,10 @@ def main():
     dif.add_argument("--pre", help="path to a specific pre-snapshot (default: latest for --host)")
     dif.add_argument("--post", help="path to a specific post-snapshot (default: latest for --host)")
     dif.add_argument("--no-color", action="store_true", help="disable ANSI colors (e.g. for plain log files)")
+    dif.add_argument("--html", metavar="PATH",
+                      help="also write a side-by-side HTML diff report to PATH "
+                           "(Notepad++ Compare style: green/red/yellow highlighting), "
+                           "viewable in any browser")
 
     args = parser.parse_args()
     os.makedirs(SNAPSHOT_DIR, exist_ok=True)
@@ -250,6 +408,16 @@ def main():
         # Differences are informational (e.g. `show version` is *expected*
         # to change) - always exit 0, never fails the run on its own.
         diff_snapshots(args.host, pre_path, post_path, use_color=use_color)
+
+        if args.html:
+            with open(pre_path) as fh:
+                pre = json.load(fh)
+            with open(post_path) as fh:
+                post = json.load(fh)
+            html = build_html_diff(args.host, pre, post, pre_path, post_path)
+            with open(args.html, "w") as fh:
+                fh.write(html)
+            print(f"\nHTML diff report written to {args.html}")
 
 
 if __name__ == "__main__":
