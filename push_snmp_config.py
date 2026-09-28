@@ -3,7 +3,7 @@
 Push read-only SNMPv3 config to every switch in inventory/hosts.yaml, so your
 NOC monitoring host (e.g. 10.0.0.50) can poll CPU/memory/interfaces.
 
-Config pushed per host (idempotent — same commands can be re-run safely,
+Config pushed per host (idempotent - same commands can be re-run safely,
 but see the note on stale USM state below):
     snmp-server view NOC-RO-VIEW iso included
     snmp-server group NOC-RO-GROUP v3 priv read NOC-RO-VIEW
@@ -11,16 +11,16 @@ but see the note on stale USM state below):
     snmp-server location <site_name>
     snmp-server contact NOC Monitoring
 
-Two-tier auth/priv depending on platform capability — confirmed by direct
+Two-tier auth/priv depending on platform capability - confirmed by direct
 testing across the fleet, not assumed:
-  - SHA256_CAPABLE hosts (currently HQ-CORE, BRANCH-EAST — already
+  - SHA256_CAPABLE hosts (currently HQ-CORE, BRANCH-EAST - already
     upgraded to the target 17.18.x image): auth sha-2 256 + priv aes 256.
     This is the only combo that works on these; SHA-1 auth on this platform
     fails to derive a working AES key of ANY size.
   - Everyone else (older/pre-upgrade firmware, e.g. 17.9.4 on BRANCH-NORTH):
     "auth sha-2 256" is silently downgraded to SHA-1 by the switch itself
     regardless of what you type (visible via `show snmp user`), and SHA-1
-    only derives a working key for AES-128, not AES-256 — so these get
+    only derives a working key for AES-128, not AES-256 - so these get
     auth sha + priv aes 128. Once these switches are upgraded via
     upgrade.py to match HQ-CORE/BRANCH-EAST, move
     their name into SHA256_CAPABLE and re-run this script.
@@ -31,7 +31,7 @@ auth/priv combo (e.g. during earlier troubleshooting), just re-issuing
 state behind on some platforms. This script issues `no snmp-server user`
 first to force a clean recreate every time, specifically to avoid that.
 
-No ACL — v3 auth+priv is the only access control (any source that has the
+No ACL - v3 auth+priv is the only access control (any source that has the
 username/auth/priv passwords can poll). If you want to scope this to the
 collector's IP later, that's a one-line group/user change (add "access
 <acl-name>").
@@ -68,7 +68,7 @@ SNMP_GROUP       = "NOC-RO-GROUP"
 SNMP_VIEW        = "NOC-RO-VIEW"
 
 # Switches confirmed (by direct SNMPv3 testing) to actually support SHA-2/256
-# + AES-256 — everyone else falls back to SHA-1 + AES-128 (see module
+# + AES-256 - everyone else falls back to SHA-1 + AES-128 (see module
 # docstring). Update this set as more switches get upgraded to the target
 # firmware via upgrade.py.
 SHA256_CAPABLE = {"HQ-CORE", "BRANCH-EAST"}
@@ -102,7 +102,7 @@ def build_config(task: Task, auth_pass: str, priv_pass: str) -> list:
     return [
         f"snmp-server view {SNMP_VIEW} iso included",
         f"snmp-server group {SNMP_GROUP} v3 priv read {SNMP_VIEW}",
-        # Clean recreate — redefining an existing user in place can leave
+        # Clean recreate - redefining an existing user in place can leave
         # stale localized keys behind on some platforms (observed on
         # HQ-CORE after switching its auth protocol mid-troubleshooting).
         f"no snmp-server user {SNMP_USER} {SNMP_GROUP} v3",

@@ -1,7 +1,7 @@
 # Cisco Switch Fleet Upgrade Toolkit
 
-Automates a Cisco IOS-XE switch upgrade end to end — pre-checks, backup,
-snapshot, image staging, the reload itself, and post-upgrade verification —
+Automates a Cisco IOS-XE switch upgrade end to end: pre-checks, backup,
+snapshot, image staging, the reload itself, and post-upgrade verification,
 one switch at a time, with a human-approval gate before anything reloads.
 
 Built on [Nornir](https://nornir.readthedocs.io/) + [Netmiko](https://github.com/ktbyers/netmiko).
@@ -9,7 +9,7 @@ Tested against Cisco Catalyst 9000-series switches in both `install` mode
 (`packages.conf`) and legacy `bundle` mode.
 
 > All hostnames, IPs, and site names in this repo are dummy examples. Your
-> real inventory (`inventory/hosts.yaml`) and credentials are gitignored —
+> real inventory (`inventory/hosts.yaml`) and credentials are gitignored,
 > see [Setup](#setup).
 
 ## The flow
@@ -20,22 +20,22 @@ flowchart TD
     B --> C[snapshot pre<br/>capture 8 show commands]
     C --> D[stage<br/>SCP image to flash, verify MD5]
     D --> E{Human approves<br/>the reload?}
-    E -- no --> X[Stop here — nothing risky<br/>has happened yet]
+    E -- no --> X[Stop here - nothing risky<br/>has happened yet]
     E -- yes --> F[upgrade<br/>install add/activate/commit + reload]
     F --> G[wait for the switch<br/>to come back]
     G --> H[verify<br/>confirm target IOS version]
     H --> I[snapshot post<br/>capture the same 8 commands]
     I --> J[diff<br/>field-level pre vs post]
-    J --> K[Done — review the diff,<br/>close out the change]
+    J --> K[Done - review the diff,<br/>close out the change]
 ```
 
 Every step but the reload itself is safe to re-run. Only one switch reloads
-at a time, and only after a human says go — the tooling refuses to reload
+at a time, and only after a human says go - the tooling refuses to reload
 more than one host per invocation.
 
 ## Two ways to run it
 
-**1. Plain CLI** — works anywhere, no dependencies beyond the venv:
+**1. Plain CLI** - works anywhere, no dependencies beyond the venv:
 
 ```bash
 ./run-upgrade.sh BRANCH-EAST
@@ -44,7 +44,7 @@ more than one host per invocation.
 This chains check → backup → pre-snapshot → stage → **confirm** → upgrade →
 verify → post-snapshot → diff, Ansible-style TASK/PLAY output, and stops at
 the first failure (see `run-upgrade.sh`). The confirm step is the
-human-approval gate from the diagram above — it shows the staging result,
+human-approval gate from the diagram above - it shows the staging result,
 then makes you type the hostname back to proceed:
 ```
 TASK [Confirm reload] ******************************************
@@ -56,28 +56,28 @@ proceed if it can't reach one at all, and typing anything but the exact
 hostname aborts before the reload. For scripted/CI runs where a human
 already approved out of band, set `AUTO_APPROVE_RELOAD=1` to skip it.
 
-**2. Claude Code agents** — if you use [Claude Code](https://claude.com/claude-code),
+**2. Claude Code agents** - if you use [Claude Code](https://claude.com/claude-code),
 `.claude/agents/` defines three agents that mirror the same flow, split at
 the human-approval gate:
 
 ```mermaid
 flowchart LR
-    subgraph Batman["batman — prep"]
+    subgraph Batman["batman - prep"]
         direction TB
         A1[check] --> A2[backup] --> A3[snapshot pre] --> A4[stage]
     end
     Batman --> Gate{{"Human says:<br/>'approved, reload BRANCH-EAST'"}}
-    Gate --> Superman["superman — reload<br/>(refuses without evidence<br/>batman already staged)"]
-    Superman --> Ironman["ironman — verify + diff<br/>(read-only, safe to re-run)"]
+    Gate --> Superman["superman - reload<br/>(refuses without evidence<br/>batman already staged)"]
+    Superman --> Ironman["ironman - verify + diff<br/>(read-only, safe to re-run)"]
 ```
 
 Ask Claude Code to run `batman` on a host, review its report, explicitly
 approve the reload, then `superman`, then `ironman`. Same underlying
-scripts as the CLI path — the agents just add guardrails (refuse to skip
+scripts as the CLI path - the agents just add guardrails (refuse to skip
 steps, refuse to reload without explicit approval, never touch credentials
 themselves) and stream full raw output instead of summarizing it.
 
-Use whichever fits your workflow — they're not mutually exclusive, and both
+Use whichever fits your workflow - they're not mutually exclusive, and both
 end up calling the same `upgrade.py` / `snapshot.py` / `backup_config.py`.
 
 ## Setup
@@ -92,21 +92,26 @@ cp inventory/hosts.yaml.example inventory/hosts.yaml
 # edit inventory/hosts.yaml with your real switches
 ```
 
-Fill in `inventory/defaults.yaml` with your target image (filename, MD5,
-local path) and minimum free-flash requirement.
+Download your target IOS-XE image from [cisco.com](https://www.cisco.com/) (needs a valid
+support contract/CCO login) and place the `.bin` file in the `images/` directory
+at the repo root, creating it if it doesn't exist yet. That directory is
+gitignored, so the image itself never gets committed. Then fill in
+`inventory/defaults.yaml` with the target version, the image filename, the
+MD5 Cisco publishes alongside the download, and the matching `local_image_path`
+(`images/<your-image-filename>`), plus your minimum free-flash requirement.
 
 ### Credentials
 
 Never hardcoded, never committed. Two options:
 
 - **Env vars** (simplest, good for CI, and the only option for
-  `backup_config.py` / `push_snmp_config.py` — see note below):
+  `backup_config.py` / `push_snmp_config.py` - see note below):
   ```bash
   export NET_USER=admin
   export NET_PASS='...'
   export NET_ENABLE='...'   # enable secret, separate from the login password
   ```
-- **Encrypted local vault** — one-time setup:
+- **Encrypted local vault** - one-time setup:
   ```bash
   ./venv/bin/python3 encrypt_creds.py
   ```
@@ -119,10 +124,10 @@ Never hardcoded, never committed. Two options:
   $ ./venv/bin/python3 upgrade.py check
   Vault passphrase:
   ```
-  The passphrase itself is never stored anywhere — lose it and you re-run
+  The passphrase itself is never stored anywhere - lose it and you re-run
   `encrypt_creds.py` to set new credentials.
 
-  **Only `upgrade.py` and `snapshot.py` fall back to the vault** — they
+  **Only `upgrade.py` and `snapshot.py` fall back to the vault** - they
   check env vars first, and read `credentials.enc` if those aren't set.
   `backup_config.py` and `push_snmp_config.py` have their own credential
   loading and currently require `NET_USER`/`NET_PASS`/`NET_ENABLE` to be
@@ -133,15 +138,15 @@ Never hardcoded, never committed. Two options:
 
 The `run-*.sh` wrappers additionally show a pattern for pulling credentials
 from a host-bound [`systemd-creds`](https://www.freedesktop.org/software/systemd/man/latest/systemd-creds.html)
-vault (`creds/*.cred`) via `sudo systemd-creds decrypt` — swap that for
+vault (`creds/*.cred`) via `sudo systemd-creds decrypt` - swap that for
 whatever secrets manager you already use.
 
-## Usage — phase by phase
+## Usage - phase by phase
 
 ```bash
 ./venv/bin/python3 upgrade.py check                    # boot mode + free space, all hosts
 ./venv/bin/python3 upgrade.py stage                     # copy image to flash, verify MD5
-./venv/bin/python3 upgrade.py upgrade --host BRANCH-EAST # reload ONE host — refuses to run without --host
+./venv/bin/python3 upgrade.py upgrade --host BRANCH-EAST # reload ONE host - refuses to run without --host
 ./venv/bin/python3 upgrade.py verify --host BRANCH-EAST --wait 300
 ```
 
@@ -172,26 +177,26 @@ export SNMP_PRIV_PASS='...'
 
 ## Fleet gotchas this toolkit already works around
 
-Hard-won from running this against a real fleet — kept here so nobody
+Hard-won from running this against a real fleet - kept here so nobody
 rediscovers them the slow way:
 
 - **SCP must be enabled** (`ip scp server enable`) before `stage` can
-  transfer the image — handled automatically.
+  transfer the image - handled automatically.
 - **exec-timeout kills the control channel mid-transfer.** A multi-hundred-MB
   SCP transfer can outlast IOS's default 10-minute exec-timeout on the vty
   lines used for the *control* session (the transfer itself runs on its own
-  channel) — `stage` pushes a longer exec-timeout first.
+  channel) - `stage` pushes a longer exec-timeout first.
 - **`install add` refuses to run if running-config != startup-config.**
   `upgrade_install_mode` runs `write memory` first for exactly this reason.
 - **`install add` is issued with `prompt-level none`** (`install add file
   flash:<image> activate commit prompt-level none`), which suppresses every
-  interactive prompt IOS-XE would otherwise show — including "This will
+  interactive prompt IOS-XE would otherwise show - including "This will
   reload the system, proceed? [confirm]". That's deliberate: it's the only
   way to run `install add/activate/commit` unattended in one shot. One
-  side effect worth knowing — because that prompt never appears, there is
+  side effect worth knowing - because that prompt never appears, there is
   no "confirm" text to wait on, so `upgrade_install_mode` doesn't (and
   can't) use an `expect_string` the way bundle mode's plain `reload` does.
-- **The reload drops your SSH session — that's expected, not a failure.**
+- **The reload drops your SSH session - that's expected, not a failure.**
   `install add/activate/commit` (and a bundle-mode `reload`) legitimately
   kill the session before the switch finishes rebooting. Routing that
   specific command through Nornir's normal `task.run()` subtask wrapper
@@ -201,13 +206,13 @@ rediscovers them the slow way:
   `upgrade_bundle_mode` instead talk to the Netmiko connection directly for
   that one command, so an expected disconnect never gets misreported as a
   hard failure.
-- **Don't run `install remove inactive` right after staging** — on this
+- **Don't run `install remove inactive` right after staging** - on this
   fleet it has deleted the newly-staged *target* image instead of old
   cruft when run post-stage, pre-reload.
-- **Don't retry a failed/timed-out `install add` immediately** — a second
+- **Don't retry a failed/timed-out `install add` immediately** - a second
   attempt before clearing a stuck first one can fail with `Super package
   already added. Add operation not allowed.` Investigate before retrying.
-- **Only one host reloads per invocation, ever** — even in a batch, reloads
+- **Only one host reloads per invocation, ever** - even in a batch, reloads
   happen one at a time with separate human approval each time.
 
 ## Repo layout

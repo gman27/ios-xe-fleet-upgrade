@@ -132,7 +132,7 @@ def print_check_summary(agg_result):
         if not isinstance(r, dict):
             # A sub-task (check_boot_mode/check_free_space) failed, which
             # makes nornir's Task.run() raise NornirSubTaskError immediately
-            # — check_all's own dict-returning line never executes, and
+            # - check_all's own dict-returning line never executes, and
             # multi[0].result becomes nornir's generic wrapper string instead.
             # Don't try to guess the real detail out of nornir's internal
             # result tree; just print it properly below via print_result().
@@ -196,7 +196,7 @@ def stage_image(task: Task) -> Result:
         overwrite_file=False,
     )
     # netmiko_file_transfer's Result.result is a plain bool (file present and
-    # MD5-valid), not the dict scp_result it's derived from — .changed tells
+    # MD5-valid), not the dict scp_result it's derived from - .changed tells
     # us whether it actually copied the file or found it already there.
     if not xfer.result:
         return Result(host=task.host, failed=True, result="file transfer or MD5 verification failed")
@@ -224,13 +224,13 @@ def stage_image(task: Task) -> Result:
 def upgrade_install_mode(task: Task) -> Result:
     remote_file = task.host["image_filename"]
     # prompt-level none suppresses every interactive prompt IOS-XE would otherwise show,
-    # including the "This will reload the system, proceed? [confirm]" one — which is the
+    # including the "This will reload the system, proceed? [confirm]" one - which is the
     # only place the literal text "reload" was ever going to appear. Waiting on
     # expect_string="reload" here was structurally guaranteed to time out on every run,
     # success or failure, since prompt-level none removes the one line it was looking for.
     # The install operation runs as its own process on the switch independent of this SSH
     # session, so a dropped connection or a client-side timeout here is expected, not an
-    # error — verify_version() below is what actually confirms success or failure.
+    # error - verify_version() below is what actually confirms success or failure.
     # install add/activate/commit refuses to run if running-config differs from
     # startup-config (fails with "System configuration has been modified. Please
     # save configuration and resubmit command."). stage_image() pushes exec-timeout
@@ -238,7 +238,7 @@ def upgrade_install_mode(task: Task) -> Result:
     task.run(task=netmiko_send_command, command_string="write memory")
     # Deliberately NOT task.run() below: task.run() appends the subtask's Result to
     # this task's own results list, and raises, *before* control ever reaches our
-    # except — so even though we catch the exception and return a clean Result,
+    # except - so even though we catch the exception and return a clean Result,
     # Nornir still sees a failed entry in the results list and marks the host
     # failed (MultiResult.failed is `any(r.failed for r in results)`). Going
     # straight at the netmiko connection keeps the expected session-drop out of
@@ -252,7 +252,7 @@ def upgrade_install_mode(task: Task) -> Result:
     except Exception as exc:
         return Result(
             host=task.host,
-            result=f"install add/activate/commit issued; session ended ({exc.__class__.__name__}) — "
+            result=f"install add/activate/commit issued; session ended ({exc.__class__.__name__}) - "
                    f"expected once the switch actually reloads, verify separately",
         )
     return Result(host=task.host, result="install add/activate/commit issued; switch is reloading")
@@ -275,7 +275,7 @@ def upgrade_bundle_mode(task: Task) -> Result:
     except Exception as exc:
         return Result(
             host=task.host,
-            result=f"boot statement set, config saved, reload issued; session ended ({exc.__class__.__name__}) — "
+            result=f"boot statement set, config saved, reload issued; session ended ({exc.__class__.__name__}) - "
                    f"expected once the switch actually reloads, verify separately",
         )
     return Result(host=task.host, result="boot statement set, config saved, reload issued")
@@ -318,8 +318,8 @@ def main():
     summarize_pass_fail(enable_result, "Enable mode")
     if enable_result.failed_hosts:
         sys.exit(
-            f"Aborting: enable mode failed on {', '.join(sorted(enable_result.failed_hosts))} "
-            "— not safe to continue."
+            f"Aborting: enable mode failed on {', '.join(sorted(enable_result.failed_hosts))}, "
+            "not safe to continue."
         )
 
     if args.phase == "check":
@@ -334,7 +334,7 @@ def main():
             sys.exit(1)
     elif args.phase == "upgrade":
         if not args.host:
-            sys.exit("Refusing to reload all 10 switches at once — pass --host <name> and go one at a time.")
+            sys.exit("Refusing to reload all 10 switches at once - pass --host <name> and go one at a time.")
         result = nr.run(task=do_upgrade)
         print_result(result)
         if result.failed_hosts:

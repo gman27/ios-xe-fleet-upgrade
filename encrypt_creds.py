@@ -47,7 +47,7 @@ def main():
         f.write(base64.urlsafe_b64encode(salt) + b"\n" + token)
     os.chmod(creds.CREDS_FILE, 0o600)
     print(f"Wrote encrypted credentials to {creds.CREDS_FILE} (mode 600).")
-    print("Remember the vault passphrase — it is not stored anywhere and cannot be recovered.")
+    print("Remember the vault passphrase - it is not stored anywhere and cannot be recovered.")
 
 
 if __name__ == "__main__":

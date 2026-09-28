@@ -1,6 +1,6 @@
 ---
 # Copy this file to hosts.yaml and fill in your own switches.
-# hosts.yaml is gitignored on purpose — it's real internal IPs/hostnames,
+# hosts.yaml is gitignored on purpose, it's real internal IPs/hostnames,
 # it should never be committed.
 HQ-CORE:
   hostname: 10.0.0.1

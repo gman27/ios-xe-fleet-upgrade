@@ -12,7 +12,7 @@ export NET_USER=$(dec net_user)
 export NET_PASS=$(dec net_pass)
 export NET_ENABLE=$(dec net_enable)
 
-# SNMPv3 auth/priv passwords — prefer the systemd-creds vault
+# SNMPv3 auth/priv passwords - prefer the systemd-creds vault
 # (creds/snmp_auth_pass.cred, creds/snmp_priv_pass.cred); fall back to
 # already-exported env vars if those files don't exist yet.
 if [[ -f "$CRED_DIR/snmp_auth_pass.cred" ]]; then

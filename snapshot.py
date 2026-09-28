@@ -133,7 +133,7 @@ def diff_table(cmd, pre_rows, post_rows, use_color):
                     if pr.get(kk) != po.get(kk):
                         lines.append(c(f"    {kk}: {pr.get(kk)!r} -> {po.get(kk)!r}", YELLOW, use_color))
     else:
-        # No usable key for this table — fall back to whole-row set diff.
+        # No usable key for this table - fall back to whole-row set diff.
         def norm(r):
             return json.dumps(r, sort_keys=True, default=str)
 
@@ -185,7 +185,7 @@ def diff_snapshots(host, pre_path, post_path, use_color=True):
             else:
                 lines = diff_table(cmd, pre_data, post_data, use_color)
         else:
-            # One or both sides weren't parseable (no matching template) —
+            # One or both sides weren't parseable (no matching template),
             # fall back to a plain text diff of the two payloads.
             lines = diff_raw_text(str(pre_entry["data"]), str(post_entry["data"]), use_color)
 
@@ -198,13 +198,13 @@ def diff_snapshots(host, pre_path, post_path, use_color=True):
             out.append(f"=== unchanged: {cmd} ===")
 
     out.append(
-        c("\nFLAGGED: differences found above — review before closing out the change.", BOLD + YELLOW, use_color)
+        c("\nFLAGGED: differences found above - review before closing out the change.", BOLD + YELLOW, use_color)
         if any_diff
         else "\nNo differences found across any of the captured commands."
     )
     # Single write: some dependency in the netmiko/nornir chain initializes
     # colorama with autoreset=True, which appends its own reset code after
-    # *every* stdout.write() — harmless when rendered, but many small
+    # *every* stdout.write() - harmless when rendered, but many small
     # print() calls turn into a lot of stray-looking reset noise in the raw
     # bytes. One write keeps that down to a single trailing reset.
     print("\n".join(out))
@@ -240,7 +240,7 @@ def main():
         post_path = args.post or latest_snapshot(args.host, "post")
         use_color = not args.no_color
         # Differences are informational (e.g. `show version` is *expected*
-        # to change) — always exit 0, never fails the run on its own.
+        # to change) - always exit 0, never fails the run on its own.
         diff_snapshots(args.host, pre_path, post_path, use_color=use_color)
 
 

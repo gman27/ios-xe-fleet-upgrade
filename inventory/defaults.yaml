@@ -2,8 +2,8 @@
 # username/password are injected at runtime from NET_USER / NET_PASS env vars
 # (see upgrade.py: load_inventory()) so nothing sensitive lives in this repo.
 data:
-  target_version: "17.18.04"        # expected `show version` release after upgrade
-  image_filename: "cat9k_lite_iosxe.17.18.04.SPA.bin"
-  image_md5: "50b0a7a8cac5ae689aed9a2e06c909c9"                     # fill in from Cisco's published MD5 for the image
-  local_image_path: "images/cat9k_lite_iosxe.17.18.04.SPA.bin"
+  target_version: "<add target IOS-XE version here, e.g. 17.18.04>"        # expected `show version` release after upgrade
+  image_filename: "<add target image filename here, e.g. cat9k_lite_iosxe.17.18.04.SPA.bin>"
+  image_md5: "<add MD5 here from Cisco's site>"                            # published alongside the image download on cisco.com
+  local_image_path: "images/<add target image filename here>"             # place the downloaded .bin under images/, see README Setup
   min_free_bytes: 1200000000        # ~1.2GB headroom check before transfer

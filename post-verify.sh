@@ -1,7 +1,7 @@
 #!/bin/bash
 # Post-upgrade verification: confirm target version, capture a post-upgrade
 # snapshot, and diff it against the most recent pre-upgrade one. Entirely
-# read-only against the switch — no config changes, no reload. Safe to
+# read-only against the switch - no config changes, no reload. Safe to
 # (re)run any time after an upgrade.
 set -uo pipefail
 cd "$(dirname "$0")"

@@ -8,7 +8,7 @@
 # Each task must succeed before the next runs (upgrade.py/backup_config.py
 # exit non-zero on any failed host, including a failed enable mode), so a
 # bad backup/check/stage/credential-decrypt stops the run before it ever
-# reaches the reload step. The confirm step is an interactive gate — it
+# reaches the reload step. The confirm step is an interactive gate - it
 # reads from the controlling terminal, not from stdin, so it can't be
 # accidentally satisfied by piped input; see confirm_reload() below for the
 # AUTO_APPROVE_RELOAD escape hatch for scripted/CI use.
@@ -69,27 +69,27 @@ dec() { sudo systemd-creds decrypt --name="$1" "$CRED_DIR/$1.cred" -; }
 
     maybe_check() {
         if [ -n "${SKIP_CHECK:-}" ]; then
-            echo "SKIP_CHECK set — skipping the free-space/boot-mode gate."
-            echo "(upgrade_install_mode doesn't call check_free_space itself — only stage/upgrade run now, and Cisco's own 'install add' does its own space validation.)"
+            echo "SKIP_CHECK set - skipping the free-space/boot-mode gate."
+            echo "(upgrade_install_mode doesn't call check_free_space itself - only stage/upgrade run now, and Cisco's own 'install add' does its own space validation.)"
             return 0
         fi
         "$PY" upgrade.py check --host "$HOST"
     }
 
     # Interactive human-approval gate, right before the irreversible step.
-    # Reads from /dev/tty explicitly — not stdin — so this can't be
+    # Reads from /dev/tty explicitly - not stdin - so this can't be
     # accidentally satisfied by output piped into this script, and fails
     # closed (refuses to proceed) if no terminal is attached at all.
     # AUTO_APPROVE_RELOAD=1 is the deliberate, opt-in bypass for scripted/CI
     # runs where a human already approved out of band.
     confirm_reload() {
         if [ -n "${AUTO_APPROVE_RELOAD:-}" ]; then
-            printf "${YELLOW}AUTO_APPROVE_RELOAD is set — skipping the interactive reload confirmation.${RESET}\n"
+            printf "${YELLOW}AUTO_APPROVE_RELOAD is set - skipping the interactive reload confirmation.${RESET}\n"
             return 0
         fi
         printf "${BOLD}${YELLOW}About to run install add/activate/commit and reload %s now. This is the irreversible step.${RESET}\n" "$HOST"
         # `-r /dev/tty` only checks file permissions, not whether a terminal is
-        # actually attached — it stays true even under setsid/cron with no
+        # actually attached - it stays true even under setsid/cron with no
         # controlling tty, so it can't be used to decide whether to proceed.
         # read's own exit status is the only reliable signal: it fails (EOF,
         # ENXIO opening /dev/tty, etc.) if there's truly nothing to read from.
@@ -97,11 +97,11 @@ dec() { sudo systemd-creds decrypt --name="$1" "$CRED_DIR/$1.cred" -; }
         # unbound under `set -u` and fall through past the abort below.
         local reply=""
         if ! read -r -p "Type the hostname exactly (${HOST}) to proceed, anything else aborts: " reply < /dev/tty 2>/dev/null; then
-            printf "${RED}Couldn't read a confirmation from a controlling terminal, and AUTO_APPROVE_RELOAD is not set. Refusing to guess — aborting.${RESET}\n"
+            printf "${RED}Couldn't read a confirmation from a controlling terminal, and AUTO_APPROVE_RELOAD is not set. Refusing to guess - aborting.${RESET}\n"
             return 1
         fi
         if [ "$reply" != "$HOST" ]; then
-            printf "${RED}Confirmation did not match — aborting before reload.${RESET}\n"
+            printf "${RED}Confirmation did not match - aborting before reload.${RESET}\n"
             return 1
         fi
         return 0
@@ -109,9 +109,9 @@ dec() { sudo systemd-creds decrypt --name="$1" "$CRED_DIR/$1.cred" -; }
 
     PY=./venv/bin/python3
 
-    printf "${BOLD}PLAY [%s upgrade — %s]${RESET} %s\n" "$HOST" "$(date -Is)" "$(stars 30)"
+    printf "${BOLD}PLAY [%s upgrade - %s]${RESET} %s\n" "$HOST" "$(date -Is)" "$(stars 30)"
     if [ -n "${SKIP_CHECK:-}" ]; then
-        printf "${YELLOW}NOTE: SKIP_CHECK is set — the free-space/boot-mode check will be bypassed this run.${RESET}\n"
+        printf "${YELLOW}NOTE: SKIP_CHECK is set - the free-space/boot-mode check will be bypassed this run.${RESET}\n"
     fi
 
     run_task "Decrypt credentials"           ok      decrypt_creds &&
@@ -138,5 +138,5 @@ dec() { sudo systemd-creds decrypt --name="$1" "$CRED_DIR/$1.cred" -; }
 ) 2>&1 | tee -a "$LOG_FILE"
 STATUS=${PIPESTATUS[0]}
 
-echo "Upgrade run for $HOST finished (exit $STATUS) — see $LOG_FILE"
+echo "Upgrade run for $HOST finished (exit $STATUS) - see $LOG_FILE"
 exit "$STATUS"
