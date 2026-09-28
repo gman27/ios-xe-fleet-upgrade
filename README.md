@@ -88,15 +88,37 @@ local path) and minimum free-flash requirement.
 
 Never hardcoded, never committed. Two options:
 
-- **Env vars** (simplest, good for CI):
+- **Env vars** (simplest, good for CI, and the only option for
+  `backup_config.py` / `push_snmp_config.py` — see note below):
   ```bash
   export NET_USER=admin
   export NET_PASS='...'
   export NET_ENABLE='...'   # enable secret, separate from the login password
   ```
-- **Encrypted local vault** — `./venv/bin/python3 encrypt_creds.py` once,
-  then every script prompts for the vault passphrase at runtime instead of
-  needing plaintext env vars.
+- **Encrypted local vault** — one-time setup:
+  ```bash
+  ./venv/bin/python3 encrypt_creds.py
+  ```
+  It prompts for your switch login username, login password, and enable
+  secret, then a *separate* vault passphrase to encrypt them with, and
+  writes the result to `credentials.enc` (mode 600, gitignored). From then
+  on, instead of exporting `NET_USER`/`NET_PASS`/`NET_ENABLE`, you just run
+  the script and type the vault passphrase when prompted:
+  ```
+  $ ./venv/bin/python3 upgrade.py check
+  Vault passphrase:
+  ```
+  The passphrase itself is never stored anywhere — lose it and you re-run
+  `encrypt_creds.py` to set new credentials.
+
+  **Only `upgrade.py` and `snapshot.py` fall back to the vault** — they
+  check env vars first, and read `credentials.enc` if those aren't set.
+  `backup_config.py` and `push_snmp_config.py` have their own credential
+  loading and currently require `NET_USER`/`NET_PASS`/`NET_ENABLE` to be
+  exported; they'll exit with a clear error if the vault is the only thing
+  you've set up. If you want vault support everywhere, point their
+  `load_inventory()` at `creds.load_credentials()` the same way
+  `upgrade.py` does.
 
 The `run-*.sh` wrappers additionally show a pattern for pulling credentials
 from a host-bound [`systemd-creds`](https://www.freedesktop.org/software/systemd/man/latest/systemd-creds.html)
@@ -150,6 +172,14 @@ rediscovers them the slow way:
   channel) — `stage` pushes a longer exec-timeout first.
 - **`install add` refuses to run if running-config != startup-config.**
   `upgrade_install_mode` runs `write memory` first for exactly this reason.
+- **`install add` is issued with `prompt-level none`** (`install add file
+  flash:<image> activate commit prompt-level none`), which suppresses every
+  interactive prompt IOS-XE would otherwise show — including "This will
+  reload the system, proceed? [confirm]". That's deliberate: it's the only
+  way to run `install add/activate/commit` unattended in one shot. One
+  side effect worth knowing — because that prompt never appears, there is
+  no "confirm" text to wait on, so `upgrade_install_mode` doesn't (and
+  can't) use an `expect_string` the way bundle mode's plain `reload` does.
 - **The reload drops your SSH session — that's expected, not a failure.**
   `install add/activate/commit` (and a bundle-mode `reload`) legitimately
   kill the session before the switch finishes rebooting. Routing that
