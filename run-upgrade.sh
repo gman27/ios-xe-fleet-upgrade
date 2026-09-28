@@ -3,12 +3,15 @@
 # RECAP output. Decrypts credentials once, host-bound via systemd-creds
 # (same pattern as run-backup.sh) so nothing plaintext ever touches disk,
 # then chains:
-#   decrypt -> backup -> pre-snapshot -> check -> stage -> upgrade -> verify
-#   -> post-snapshot -> diff
+#   decrypt -> backup -> pre-snapshot -> check -> stage -> confirm -> upgrade
+#   -> verify -> post-snapshot -> diff
 # Each task must succeed before the next runs (upgrade.py/backup_config.py
 # exit non-zero on any failed host, including a failed enable mode), so a
 # bad backup/check/stage/credential-decrypt stops the run before it ever
-# reaches the reload step.
+# reaches the reload step. The confirm step is an interactive gate — it
+# reads from the controlling terminal, not from stdin, so it can't be
+# accidentally satisfied by piped input; see confirm_reload() below for the
+# AUTO_APPROVE_RELOAD escape hatch for scripted/CI use.
 set -uo pipefail
 cd "$(dirname "$0")"
 
@@ -73,6 +76,37 @@ dec() { sudo systemd-creds decrypt --name="$1" "$CRED_DIR/$1.cred" -; }
         "$PY" upgrade.py check --host "$HOST"
     }
 
+    # Interactive human-approval gate, right before the irreversible step.
+    # Reads from /dev/tty explicitly — not stdin — so this can't be
+    # accidentally satisfied by output piped into this script, and fails
+    # closed (refuses to proceed) if no terminal is attached at all.
+    # AUTO_APPROVE_RELOAD=1 is the deliberate, opt-in bypass for scripted/CI
+    # runs where a human already approved out of band.
+    confirm_reload() {
+        if [ -n "${AUTO_APPROVE_RELOAD:-}" ]; then
+            printf "${YELLOW}AUTO_APPROVE_RELOAD is set — skipping the interactive reload confirmation.${RESET}\n"
+            return 0
+        fi
+        printf "${BOLD}${YELLOW}About to run install add/activate/commit and reload %s now. This is the irreversible step.${RESET}\n" "$HOST"
+        # `-r /dev/tty` only checks file permissions, not whether a terminal is
+        # actually attached — it stays true even under setsid/cron with no
+        # controlling tty, so it can't be used to decide whether to proceed.
+        # read's own exit status is the only reliable signal: it fails (EOF,
+        # ENXIO opening /dev/tty, etc.) if there's truly nothing to read from.
+        # `reply` is pre-initialized so a failed read can never leave it
+        # unbound under `set -u` and fall through past the abort below.
+        local reply=""
+        if ! read -r -p "Type the hostname exactly (${HOST}) to proceed, anything else aborts: " reply < /dev/tty 2>/dev/null; then
+            printf "${RED}Couldn't read a confirmation from a controlling terminal, and AUTO_APPROVE_RELOAD is not set. Refusing to guess — aborting.${RESET}\n"
+            return 1
+        fi
+        if [ "$reply" != "$HOST" ]; then
+            printf "${RED}Confirmation did not match — aborting before reload.${RESET}\n"
+            return 1
+        fi
+        return 0
+    }
+
     PY=./venv/bin/python3
 
     printf "${BOLD}PLAY [%s upgrade — %s]${RESET} %s\n" "$HOST" "$(date -Is)" "$(stars 30)"
@@ -85,6 +119,7 @@ dec() { sudo systemd-creds decrypt --name="$1" "$CRED_DIR/$1.cred" -; }
     run_task "Capture pre-upgrade snapshot"  ok      "$PY" snapshot.py capture --host "$HOST" --label pre &&
     run_task "Check boot mode / free space"  ok      maybe_check &&
     run_task "Stage image to flash"          changed "$PY" upgrade.py stage    --host "$HOST" &&
+    run_task "Confirm reload"                ok      confirm_reload &&
     run_task "Upgrade and reload"            changed "$PY" upgrade.py upgrade  --host "$HOST" &&
     run_task "Verify post-upgrade version"   ok      "$PY" upgrade.py verify   --host "$HOST" --wait 300 &&
     run_task "Capture post-upgrade snapshot" ok      "$PY" snapshot.py capture --host "$HOST" --label post &&

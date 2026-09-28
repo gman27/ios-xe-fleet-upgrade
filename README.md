@@ -41,9 +41,20 @@ more than one host per invocation.
 ./run-upgrade.sh BRANCH-EAST
 ```
 
-This chains check → backup → pre-snapshot → stage → upgrade → verify →
-post-snapshot → diff, Ansible-style TASK/PLAY output, and stops at the first
-failure (see `run-upgrade.sh`).
+This chains check → backup → pre-snapshot → stage → **confirm** → upgrade →
+verify → post-snapshot → diff, Ansible-style TASK/PLAY output, and stops at
+the first failure (see `run-upgrade.sh`). The confirm step is the
+human-approval gate from the diagram above — it shows the staging result,
+then makes you type the hostname back to proceed:
+```
+TASK [Confirm reload] ******************************************
+About to run install add/activate/commit and reload BRANCH-EAST now. This is the irreversible step.
+Type the hostname exactly (BRANCH-EAST) to proceed, anything else aborts:
+```
+It reads from the controlling terminal directly (not stdin), refuses to
+proceed if it can't reach one at all, and typing anything but the exact
+hostname aborts before the reload. For scripted/CI runs where a human
+already approved out of band, set `AUTO_APPROVE_RELOAD=1` to skip it.
 
 **2. Claude Code agents** — if you use [Claude Code](https://claude.com/claude-code),
 `.claude/agents/` defines three agents that mirror the same flow, split at
