@@ -163,6 +163,22 @@ Or the one-shot wrapper for a single switch, start to finish:
 ./run-upgrade.sh BRANCH-EAST
 ```
 
+### If your SSH session drops mid-upgrade
+
+Every `run-upgrade.sh` run also writes its full output to
+`logs/upgrade-<HOST>-<timestamp>.log` (via `tee`). If the SSH connection to
+the Linux box (or to your automation box) gets dropped after the upgrade
+command has been executed, reconnect and follow the log to check progress.
+The `sed` strips the ANSI colour codes so the output stays readable:
+
+```bash
+tail -f logs/upgrade-<HOST>-<timestamp>.log | sed 's/\x1b\[[0-9;]*m//g'
+```
+
+Find the newest log with `ls -t logs/ | head`. Note that a dropped terminal
+can still send the script a hangup signal, so for long runs it's safest to
+start `run-upgrade.sh` inside `tmux` or `screen` in the first place.
+
 ### SNMP rollout (optional, separate from the upgrade flow)
 
 `push_snmp_config.py` pushes read-only SNMPv3 monitoring config fleet-wide,

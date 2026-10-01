@@ -20,6 +20,12 @@ import re
 import sys
 import time
 
+import warnings
+
+# nornir's __init__ imports pkg_resources, which newer setuptools flags as
+# deprecated. Harmless noise; filter only that exact message.
+warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API")
+
 from nornir import InitNornir
 from nornir.core.filter import F
 from nornir.core.task import Result, Task
