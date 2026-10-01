@@ -17,6 +17,7 @@ Credentials come from env vars, never from inventory files:
 import argparse
 import os
 import re
+import subprocess
 import sys
 import time
 
@@ -296,8 +297,50 @@ def do_upgrade(task: Task) -> Result:
     return upgrade_bundle_mode(task)
 
 
+def _ping(addr: str) -> bool:
+    return subprocess.run(
+        ["ping", "-c", "1", "-W", "2", addr],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    ).returncode == 0
+
+
+def wait_for_reload(host: str, addr: str, max_wait: int, drop_grace: int = 180) -> str:
+    """Wait for ping to drop, then return, within max_wait seconds total.
+
+    If ping never drops within drop_grace, assume the reload was missed or the
+    drop was too brief to see, and fall through to the verify step rather than
+    blocking for the full timeout. Progress is printed live.
+    """
+    if max_wait <= 0:
+        return "wait skipped"
+    start = time.monotonic()
+    elapsed = lambda: int(time.monotonic() - start)
+
+    print(f"[{host}] waiting for ping to {addr} to drop (up to {drop_grace}s)", flush=True)
+    dropped = False
+    while elapsed() < min(drop_grace, max_wait):
+        if not _ping(addr):
+            dropped = True
+            print(f"[{host}] ping dropped at {elapsed()}s", flush=True)
+            break
+        time.sleep(3)
+    if not dropped:
+        print(f"[{host}] WARNING: ping never dropped in {elapsed()}s; "
+              f"switch may not have reloaded, proceeding to verify", flush=True)
+        return "ping never dropped"
+
+    print(f"[{host}] waiting for ping to return (up to {max_wait}s total)", flush=True)
+    while elapsed() < max_wait:
+        if _ping(addr):
+            print(f"[{host}] ping returned at {elapsed()}s", flush=True)
+            time.sleep(60)  # let SSH and the stack members settle after ping answers
+            return f"ping dropped, returned at {elapsed()}s"
+        time.sleep(5)
+    raise TimeoutError(f"{host} did not answer ping within {max_wait}s of reload")
+
+
 def verify_version(task: Task, wait_seconds: int) -> Result:
-    time.sleep(wait_seconds)
+    wait_for_reload(task.host.name, task.host.hostname, wait_seconds)
     out = task.run(
         task=netmiko_send_command,
         command_string="show version | include Version",
@@ -313,7 +356,7 @@ def main():
     parser.add_argument("phase", choices=["check", "stage", "upgrade", "verify"])
     parser.add_argument("--host", help="limit to a single inventory host (recommended for 'upgrade')")
     parser.add_argument("--workers", type=int, default=1)
-    parser.add_argument("--wait", type=int, default=300, help="seconds to wait before post-upgrade verify")
+    parser.add_argument("--wait", type=int, default=1200, help="max seconds to wait for the switch to drop off and come back on ping before post-upgrade verify")
     args = parser.parse_args()
 
     nr = load_inventory(num_workers=args.workers)

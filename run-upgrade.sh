@@ -121,7 +121,7 @@ dec() { sudo systemd-creds decrypt --name="$1" "$CRED_DIR/$1.cred" -; }
     run_task "Stage image to flash"          changed "$PY" upgrade.py stage    --host "$HOST" &&
     run_task "Confirm reload"                ok      confirm_reload &&
     run_task "Upgrade and reload"            changed "$PY" upgrade.py upgrade  --host "$HOST" &&
-    run_task "Verify post-upgrade version"   ok      "$PY" upgrade.py verify   --host "$HOST" --wait 300 &&
+    run_task "Verify post-upgrade version"   ok      "$PY" upgrade.py verify   --host "$HOST" --wait 1200 &&
     run_task "Capture post-upgrade snapshot" ok      "$PY" snapshot.py capture --host "$HOST" --label post &&
     run_task "Diff pre/post state"           ok      "$PY" snapshot.py diff    --host "$HOST"
     PHASE_STATUS=$?

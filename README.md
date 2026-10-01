@@ -147,7 +147,7 @@ whatever secrets manager you already use.
 ./venv/bin/python3 upgrade.py check                    # boot mode + free space, all hosts
 ./venv/bin/python3 upgrade.py stage                     # copy image to flash, verify MD5
 ./venv/bin/python3 upgrade.py upgrade --host BRANCH-EAST # reload ONE host - refuses to run without --host
-./venv/bin/python3 upgrade.py verify --host BRANCH-EAST --wait 300
+./venv/bin/python3 upgrade.py verify --host BRANCH-EAST --wait 1200
 ```
 
 ```bash
