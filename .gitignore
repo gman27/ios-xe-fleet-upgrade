@@ -17,3 +17,6 @@ nornir.log
 
 # Firmware images, large, and Cisco's, not ours to redistribute
 images/*.bin
+
+# Generated HTML diff reports, contain device config details
+reports/

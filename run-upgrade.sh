@@ -20,6 +20,9 @@ HOST="${1:?usage: run-upgrade.sh <inventory-host-name>}"
 LOG_DIR=logs
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/upgrade-${HOST}-$(date +%Y%m%d-%H%M%S).log"
+REPORT_DIR=reports
+REPORT="$REPORT_DIR/${HOST}-diff-$(date +%Y%m%d_%H%M%S).html"
+mkdir -p "$REPORT_DIR"
 
 CRED_DIR=creds
 dec() { sudo systemd-creds decrypt --name="$1" "$CRED_DIR/$1.cred" -; }
@@ -123,7 +126,7 @@ dec() { sudo systemd-creds decrypt --name="$1" "$CRED_DIR/$1.cred" -; }
     run_task "Upgrade and reload"            changed "$PY" upgrade.py upgrade  --host "$HOST" &&
     run_task "Verify post-upgrade version"   ok      "$PY" upgrade.py verify   --host "$HOST" --wait 1200 &&
     run_task "Capture post-upgrade snapshot" ok      "$PY" snapshot.py capture --host "$HOST" --label post &&
-    run_task "Diff pre/post state"           ok      "$PY" snapshot.py diff    --host "$HOST"
+    run_task "Diff pre/post state"           ok      "$PY" snapshot.py diff    --host "$HOST" --html "$REPORT"
     PHASE_STATUS=$?
 
     printf "\n${BOLD}PLAY RECAP${RESET} %s\n" "$(stars 62)"
@@ -139,4 +142,11 @@ dec() { sudo systemd-creds decrypt --name="$1" "$CRED_DIR/$1.cred" -; }
 STATUS=${PIPESTATUS[0]}
 
 echo "Upgrade run for $HOST finished (exit $STATUS) - see $LOG_FILE"
+
+# View differences by browsing to http://192.168.2.3:8000
+# Serves only the reports/ directory until Ctrl+C. Set NO_SERVE=1 to skip.
+if [ "$STATUS" -eq 0 ] && [ -z "${NO_SERVE:-}" ] && [ -f "$REPORT" ]; then
+    echo "Browse to http://192.168.2.3:8000/$(basename "$REPORT")  (Ctrl+C to stop)"
+    cd "$REPORT_DIR" && exec "$OLDPWD/venv/bin/python3" -m http.server 8000
+fi
 exit "$STATUS"
