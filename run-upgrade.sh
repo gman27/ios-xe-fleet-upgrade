@@ -143,10 +143,10 @@ STATUS=${PIPESTATUS[0]}
 
 echo "Upgrade run for $HOST finished (exit $STATUS) - see $LOG_FILE"
 
-# View differences by browsing to http://192.168.2.3:8000
+# View differences by browsing to http://<hostname>:8000
 # Serves only the reports/ directory until Ctrl+C. Set NO_SERVE=1 to skip.
 if [ "$STATUS" -eq 0 ] && [ -z "${NO_SERVE:-}" ] && [ -f "$REPORT" ]; then
-    echo "Browse to http://192.168.2.3:8000/$(basename "$REPORT")  (Ctrl+C to stop)"
+    echo "Browse to http://$(hostname):8000/$(basename "$REPORT")  (Ctrl+C to stop)"
     cd "$REPORT_DIR" && exec "$OLDPWD/venv/bin/python3" -m http.server 8000
 fi
 exit "$STATUS"

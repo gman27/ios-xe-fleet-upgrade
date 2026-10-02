@@ -31,8 +31,8 @@ REPORT="reports/${HOST}-diff-$(date +%Y%m%d_%H%M%S).html"
 "$PY" snapshot.py diff --host "$HOST" --html "$REPORT"
 echo "HTML report: $(pwd)/$REPORT"
 
-# View differences by browsing to http://192.168.2.3:8000
+# View differences by browsing to http://<hostname>:8000
 # Serves only the reports/ directory. Press Ctrl+C to stop.
 echo "--- serving reports ---"
-echo "Browse to http://192.168.2.3:8000/$(basename "$REPORT")  (Ctrl+C to stop)"
+echo "Browse to http://$(hostname):8000/$(basename "$REPORT")  (Ctrl+C to stop)"
 cd reports && exec "$OLDPWD/$PY" -m http.server 8000
