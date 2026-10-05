@@ -206,8 +206,7 @@ def stage_image(task: Task) -> Result:
     # original control channel (used for enable/config, and reused right
     # after for the MD5 verify) sits idle the whole time and gets killed by
     # the switch mid-verify unless we push a generous exec-timeout first.
-    # 120 min, not 30: one site took 78 min over a slow WAN link and the
-    # 30-min timeout closed the control channel before the MD5 check.
+    # 120 min leaves room for transfers over slow WAN links.
     # Not 0 (never): upgrade_install_mode's write memory saves this permanently.
     progress("enabling SCP, setting exec-timeout")
     task.run(

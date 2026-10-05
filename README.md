@@ -275,9 +275,9 @@ has to rediscover them:
   automated; see [Switch-side prerequisites](#switch-side-prerequisites).
 - **exec-timeout kills the control channel mid-transfer.** The transfer
   runs on its own SCP channel, but the main SSH session sits idle the whole
-  time and is reused for the MD5 check afterwards. Over a slow WAN link a
-  502 MB image has taken 78 minutes. `stage` pushes `exec-timeout 120 0` on
-  the vty lines first. It is not `0 0` (never), because the upgrade
+  time and is reused for the MD5 check afterwards. `stage` pushes
+  `exec-timeout 120 0` on the vty lines first, which leaves room for slow
+  WAN links. It is not `0 0` (never), because the upgrade
   step's `write memory` saves it permanently.
 - **Don't stage several slow sites at once.** Parallel transfers share the
   same WAN bandwidth and all slow down.
