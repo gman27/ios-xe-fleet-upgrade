@@ -16,7 +16,9 @@ Credentials come from env vars, never from inventory files:
 """
 import argparse
 import os
+import logging
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -27,6 +29,13 @@ import warnings
 # deprecated. Harmless noise; filter only that exact message.
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API")
 
+# paramiko has no handler of its own, so Python dumps its connection
+# tracebacks straight to the terminal. Send them to nornir.log instead;
+# real failures still show in full via print_result().
+_paramiko_log = logging.getLogger("paramiko")
+_paramiko_log.addHandler(logging.FileHandler(os.path.join(os.path.dirname(os.path.abspath(__file__)), "nornir.log")))
+_paramiko_log.propagate = False
+
 from nornir import InitNornir
 from nornir.core.filter import F
 from nornir.core.task import Result, Task
@@ -34,6 +43,8 @@ from nornir_netmiko.tasks import netmiko_send_command, netmiko_send_config, netm
 from nornir_utils.plugins.functions import print_result
 
 import creds
+from progress import note, progress
+import progress as _progress
 
 BOOT_MODE_RE = re.compile(r'System image file is "flash:(?P<file>\S+)"')
 
@@ -59,7 +70,7 @@ def load_inventory(num_workers=1):
     nr.inventory.defaults.username = user
     nr.inventory.defaults.password = pwd
     # groups.yaml already builds a netmiko ConnectionOptions per group; mutate its
-    # extras in place rather than replacing it, or the conn_timeout/read_timeout
+    # extras in place rather than replacing it, or the conn_timeout
     # settings defined there would be lost.
     for group in nr.inventory.groups.values():
         conn_opts = group.connection_options.get("netmiko")
@@ -76,7 +87,7 @@ def enable_mode(task: Task) -> Result:
 
 
 def check_boot_mode(task: Task) -> Result:
-    out = task.run(task=netmiko_send_command, command_string="show version | include image").result
+    out = task.run(task=netmiko_send_command, command_string="show version | include image", read_timeout=30).result
     m = BOOT_MODE_RE.search(out)
     if not m:
         return Result(host=task.host, failed=True, result="could not parse 'show version' output")
@@ -87,7 +98,7 @@ def check_boot_mode(task: Task) -> Result:
 
 
 def check_free_space(task: Task) -> Result:
-    out = task.run(task=netmiko_send_command, command_string="dir flash: | include bytes free").result
+    out = task.run(task=netmiko_send_command, command_string="dir flash: | include bytes free", read_timeout=30).result
     m = re.search(r"\((?P<free>\d+) bytes free\)", out)
     if not m:
         return Result(host=task.host, failed=True, result="could not parse free space")
@@ -173,6 +184,18 @@ def print_check_summary(agg_result):
         print_result(agg_result)
 
 
+def _transfer_progress():
+    """scp progress callback that emits one marker per whole percent."""
+    last = [-1]
+
+    def cb(filename, size, sent, *_):
+        pct = int(sent * 100 / size) if size else 0
+        if pct != last[0]:
+            last[0] = pct
+            progress(f"{pct}% ({sent / 1e6:.0f}/{size / 1e6:.0f} MB)")
+    return cb
+
+
 def stage_image(task: Task) -> Result:
     """Ensure the SCP server is enabled, then copy image to flash via SCP and verify its MD5."""
     local_path = task.host["local_image_path"]
@@ -183,15 +206,20 @@ def stage_image(task: Task) -> Result:
     # original control channel (used for enable/config, and reused right
     # after for the MD5 verify) sits idle the whole time and gets killed by
     # the switch mid-verify unless we push a generous exec-timeout first.
+    # 120 min, not 30: one site took 78 min over a slow WAN link and the
+    # 30-min timeout closed the control channel before the MD5 check.
+    # Not 0 (never): upgrade_install_mode's write memory saves this permanently.
+    progress("enabling SCP, setting exec-timeout")
     task.run(
         task=netmiko_send_config,
         config_commands=[
             "ip scp server enable",
             "line vty 0 4",
-            "exec-timeout 30 0",
+            "exec-timeout 120 0",
             "line vty 5 15",
-            "exec-timeout 30 0",
+            "exec-timeout 120 0",
         ],
+        read_timeout=30,
     )
 
     xfer = task.run(
@@ -201,6 +229,7 @@ def stage_image(task: Task) -> Result:
         file_system="flash:",
         direction="put",
         overwrite_file=False,
+        progress=_transfer_progress(),
     )
     # netmiko_file_transfer's Result.result is a plain bool (file present and
     # MD5-valid), not the dict scp_result it's derived from - .changed tells
@@ -213,6 +242,7 @@ def stage_image(task: Task) -> Result:
     if not expected_md5:
         return Result(host=task.host, result=f"{transfer_note}; no image_md5 set, skipping verification")
 
+    progress("verifying MD5 on flash")
     md5_out = task.run(
         task=netmiko_send_command,
         command_string=f"verify /md5 flash:{remote_file}",
@@ -221,6 +251,7 @@ def stage_image(task: Task) -> Result:
     m = re.search(r"=\s*([0-9a-f]{32})", md5_out)
     actual_md5 = m.group(1) if m else None
     ok = actual_md5 == expected_md5.lower()
+    note(("image transferred" if xfer.changed else "image already on flash") + (", MD5 OK" if ok else ", MD5 MISMATCH"))
     return Result(
         host=task.host,
         failed=not ok,
@@ -242,7 +273,9 @@ def upgrade_install_mode(task: Task) -> Result:
     # startup-config (fails with "System configuration has been modified. Please
     # save configuration and resubmit command."). stage_image() pushes exec-timeout
     # changes via config mode but never saves them, so save here first.
-    task.run(task=netmiko_send_command, command_string="write memory")
+    progress("saving config")
+    task.run(task=netmiko_send_command, command_string="write memory", read_timeout=60)
+    progress("install add/activate/commit running")
     # Deliberately NOT task.run() below: task.run() appends the subtask's Result to
     # this task's own results list, and raises, *before* control ever reaches our
     # except - so even though we catch the exception and return a clean Result,
@@ -252,17 +285,28 @@ def upgrade_install_mode(task: Task) -> Result:
     # Nornir's result tree entirely.
     conn = task.host.get_connection("netmiko", task.nornir.config)
     try:
-        conn.send_command(
+        out = conn.send_command(
             f"install add file flash:{remote_file} activate commit prompt-level none",
             read_timeout=120,
         )
     except Exception as exc:
+        note("install issued, switch will reload on its own")
         return Result(
             host=task.host,
             result=f"install add/activate/commit issued; session ended ({exc.__class__.__name__}) - "
                    f"expected once the switch actually reloads, verify separately",
         )
-    return Result(host=task.host, result="install add/activate/commit issued; switch is reloading")
+    # Getting the prompt back means IOS-XE finished the command without reloading,
+    # which normally means it rejected it outright (e.g. "System configuration
+    # has been modified" FAILED). Don't report that as a reload.
+    if "FAILED" in out:
+        return Result(
+            host=task.host,
+            failed=True,
+            result=f"install add/activate/commit FAILED, switch is NOT reloading:\n{out}",
+        )
+    note("install issued, switch is reloading")
+    return Result(host=task.host, result=f"install add/activate/commit issued; switch is reloading\n{out}")
 
 
 def upgrade_bundle_mode(task: Task) -> Result:
@@ -270,8 +314,9 @@ def upgrade_bundle_mode(task: Task) -> Result:
     task.run(
         task=netmiko_send_config,
         config_commands=[f"boot system flash:{remote_file}"],
+        read_timeout=30,
     )
-    task.run(task=netmiko_send_command, command_string="write memory")
+    task.run(task=netmiko_send_command, command_string="write memory", read_timeout=60)
     # Same reasoning as upgrade_install_mode: go straight at the connection so a
     # session drop from the reload doesn't leave a failed subtask Result behind
     # for Nornir to key its failure detection off.
@@ -304,43 +349,88 @@ def _ping(addr: str) -> bool:
     ).returncode == 0
 
 
-def wait_for_reload(host: str, addr: str, max_wait: int, drop_grace: int = 180) -> str:
-    """Wait for ping to drop, then return, within max_wait seconds total.
+def _ssh_up(addr: str, port: int = 22) -> bool:
+    """True once the switch answers on SSH with a protocol banner.
 
-    If ping never drops within drop_grace, assume the reload was missed or the
-    drop was too brief to see, and fall through to the verify step rather than
-    blocking for the full timeout. Progress is printed live.
+    A plain socket check, so a switch that is still booting produces no
+    paramiko tracebacks on screen.
     """
-    if max_wait <= 0:
-        return "wait skipped"
+    try:
+        with socket.create_connection((addr, port), timeout=5) as sock:
+            sock.settimeout(5)
+            return sock.recv(64).startswith(b"SSH-")
+    except OSError:
+        return False
+
+
+DOWN_CONFIRM_SECONDS = 30
+
+
+def wait_for_reload(host: str, addr: str, status_every: int = 60) -> None:
+    """Block until the switch has reloaded and is back on SSH. No time limit.
+
+    Install add/activate on a 9200L can run well past 15 minutes before the
+    reload starts, so there is deliberately no timeout here: it waits until the
+    switch is back, or until the operator presses Ctrl+C. Runs in the main
+    thread (not inside a Nornir task) so Ctrl+C stops it straight away.
+
+    The switch only counts as "down" once ping has failed continuously for
+    DOWN_CONFIRM_SECONDS. The CPU is busy during install add/activate and can
+    drop the odd ping: one site lost a single ping mid-install, it was
+    wrongly treated as reloading, and verify then hit the old image.
+    """
     start = time.monotonic()
-    elapsed = lambda: int(time.monotonic() - start)
+    elapsed = lambda: time.strftime("%M:%S" if time.monotonic() - start < 3600 else "%H:%M:%S",
+                                    time.gmtime(time.monotonic() - start))
+    last_status = time.monotonic()
 
-    print(f"[{host}] waiting for ping to {addr} to drop (up to {drop_grace}s)", flush=True)
-    dropped = False
-    while elapsed() < min(drop_grace, max_wait):
-        if not _ping(addr):
-            dropped = True
-            print(f"[{host}] ping dropped at {elapsed()}s", flush=True)
-            break
-        time.sleep(3)
-    if not dropped:
-        print(f"[{host}] WARNING: ping never dropped in {elapsed()}s; "
-              f"switch may not have reloaded, proceeding to verify", flush=True)
-        return "ping never dropped"
+    def say(msg):
+        # Milestones: always shown (as a progress marker under run-upgrade.sh).
+        if _progress.ENABLED:
+            progress(msg)
+        else:
+            print(f"[{host}] {msg}", flush=True)
 
-    print(f"[{host}] waiting for ping to return (up to {max_wait}s total)", flush=True)
-    while elapsed() < max_wait:
+    def status(msg):
+        # Repeating status: every loop under run-upgrade.sh (it only redraws one line),
+        # otherwise once every status_every seconds.
+        nonlocal last_status
+        if _progress.ENABLED:
+            progress(msg)
+        elif time.monotonic() - last_status >= status_every:
+            print(f"[{host}] {msg} ({elapsed()} elapsed, Ctrl+C to stop)", flush=True)
+            last_status = time.monotonic()
+
+    say("waiting for switch to reload (Ctrl+C to stop)")
+    down_since = None
+    while True:
         if _ping(addr):
-            print(f"[{host}] ping returned at {elapsed()}s", flush=True)
-            time.sleep(60)  # let SSH and the stack members settle after ping answers
-            return f"ping dropped, returned at {elapsed()}s"
+            if down_since is not None:
+                say(f"ping blip ({int(time.monotonic() - down_since)}s), not counting as a reload")
+                down_since = None
+            status("waiting for switch to reload")
+            time.sleep(3)
+            continue
+        if down_since is None:
+            down_since = time.monotonic()
+        if time.monotonic() - down_since >= DOWN_CONFIRM_SECONDS:
+            break
+        status(f"ping lost, confirming reload ({int(time.monotonic() - down_since)}s)")
+        time.sleep(1)
+    say(f"switch went down at {elapsed()}, reloading")
+
+    say("waiting for switch to be online")
+    while not _ping(addr):
+        status("waiting for switch to be online")
         time.sleep(5)
-    raise TimeoutError(f"{host} did not answer ping within {max_wait}s of reload")
+    while not _ssh_up(addr):
+        status("waiting for switch to be online")
+        time.sleep(10)
+    say(f"switch is online at {elapsed()}, giving it 60s to settle")
+    time.sleep(60)
 
 
-def verify_version(task: Task, wait_seconds: int) -> Result:
-    wait_for_reload(task.host.name, task.host.hostname, wait_seconds)
+def verify_version(task: Task) -> Result:
     out = task.run(
         task=netmiko_send_command,
         command_string="show version | include Version",
@@ -348,7 +438,17 @@ def verify_version(task: Task, wait_seconds: int) -> Result:
     ).result
     target = task.host["target_version"]
     ok = target in out
+    m = re.search(r"Cisco IOS XE Software, Version (\S+)", out)
+    note(f"running {m.group(1) if m else 'unknown'}" + ("" if ok else f", expected {target}"))
     return Result(host=task.host, failed=not ok, result=out.strip())
+
+
+INTERRUPTED_MSG = """
+[{host}] Stopped by Ctrl+C while waiting. Nothing was sent to the switch.
+  If it hasn't reloaded yet, the install may still be running on the switch:
+  do NOT re-run 'upgrade'. Check 'show install summary' / 'show install log'.
+  Once it is back on the new version, finish with: ./post-verify.sh {host}
+"""
 
 
 def main():
@@ -356,13 +456,24 @@ def main():
     parser.add_argument("phase", choices=["check", "stage", "upgrade", "verify"])
     parser.add_argument("--host", help="limit to a single inventory host (recommended for 'upgrade')")
     parser.add_argument("--workers", type=int, default=1)
-    parser.add_argument("--wait", type=int, default=1200, help="max seconds to wait for the switch to drop off and come back on ping before post-upgrade verify")
+    parser.add_argument("--no-wait", action="store_true", help="verify only: skip waiting for the reload and check the version straight away")
     args = parser.parse_args()
 
     nr = load_inventory(num_workers=args.workers)
     if args.host:
         nr = nr.filter(F(name=args.host))
 
+    if args.phase == "verify" and not args.no_wait:
+        # Wait before opening any SSH session: a session opened now would die
+        # with the reload.
+        for host in nr.inventory.hosts.values():
+            try:
+                wait_for_reload(host.name, host.hostname)
+            except KeyboardInterrupt:
+                print(INTERRUPTED_MSG.format(host=host.name), flush=True)
+                sys.exit(130)
+
+    progress("connecting")
     enable_result = nr.run(task=enable_mode)
     summarize_pass_fail(enable_result, "Enable mode")
     if enable_result.failed_hosts:
@@ -374,6 +485,10 @@ def main():
     if args.phase == "check":
         check_result = nr.run(task=check_all)
         print_check_summary(check_result)
+        for multi in check_result.values():
+            r = multi[0].result
+            if isinstance(r, dict) and r["free_bytes"] is not None:
+                note(f"{r['mode']} mode, {r['free_bytes'] / 1e9:.2f} GB free (min {r['free_required'] / 1e9:.2f})")
         if check_result.failed_hosts:
             sys.exit(1)
     elif args.phase == "stage":
@@ -389,7 +504,7 @@ def main():
         if result.failed_hosts:
             sys.exit(1)
     elif args.phase == "verify":
-        result = nr.run(task=verify_version, wait_seconds=args.wait)
+        result = nr.run(task=verify_version)
         print_result(result)
         if result.failed_hosts:
             sys.exit(1)

@@ -6,4 +6,6 @@ ios_switches:
       platform: cisco_ios
       extras:
         conn_timeout: 20
-        read_timeout_override: 30
+        # No read_timeout_override here: in netmiko 4.x it silently replaces
+        # every per-command read_timeout (md5 verify 180s, install 120s, backup
+        # 120s, snapshot 60s all got clamped to 30s). Each call sets its own.

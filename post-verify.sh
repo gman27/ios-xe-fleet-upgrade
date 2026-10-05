@@ -20,7 +20,7 @@ export NET_USER NET_PASS NET_ENABLE
 PY=./venv/bin/python3
 
 echo "--- verify version ---"
-"$PY" upgrade.py verify --host "$HOST" --wait 0
+"$PY" upgrade.py verify --host "$HOST" --no-wait
 
 echo "--- post-upgrade snapshot ---"
 "$PY" snapshot.py capture --host "$HOST" --label post
@@ -31,8 +31,9 @@ REPORT="reports/${HOST}-diff-$(date +%Y%m%d_%H%M%S).html"
 "$PY" snapshot.py diff --host "$HOST" --html "$REPORT"
 echo "HTML report: $(pwd)/$REPORT"
 
-# View differences by browsing to http://<hostname>:8000
+# View differences by browsing to http://<server IP>:8000 (the hostname only
+# resolves on this box itself, via /etc/hosts)
 # Serves only the reports/ directory. Press Ctrl+C to stop.
 echo "--- serving reports ---"
-echo "Browse to http://$(hostname):8000/$(basename "$REPORT")  (Ctrl+C to stop)"
+echo "Browse to http://$(hostname -I | awk '{print $1}'):8000/$(basename "$REPORT")  (Ctrl+C to stop)"
 cd reports && exec "$OLDPWD/$PY" -m http.server 8000

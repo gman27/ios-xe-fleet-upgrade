@@ -31,6 +31,8 @@ from nornir.core.task import Result, Task
 from nornir_netmiko.tasks import netmiko_send_command
 from nornir_utils.plugins.functions import print_result
 
+from progress import note, progress
+
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs")
 
 
@@ -62,6 +64,7 @@ def backup(task: Task) -> Result:
     conn = task.host.get_connection("netmiko", task.nornir.config)
     if not conn.check_enable_mode():
         conn.enable()
+    progress("show running-config")
     running = task.run(
         task=netmiko_send_command,
         command_string="show running-config",
@@ -75,6 +78,7 @@ def backup(task: Task) -> Result:
     path = os.path.join(OUT_DIR, f"{safe_filename_part(task.host.name)}-{now:%Y-%m-%d}.cfg")
     with open(path, "w") as fh:
         fh.write(header + running.rstrip() + "\n")
+    note(f"{len(running.splitlines())} lines saved to {os.path.relpath(path)}")
     return Result(host=task.host, result=f"saved {path} ({len(running.splitlines())} lines)")
 
 

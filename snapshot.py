@@ -37,6 +37,7 @@ from nornir.core.task import Result, Task
 from nornir_netmiko.tasks import netmiko_send_command
 from nornir_utils.plugins.functions import print_result
 
+from progress import note, progress
 import upgrade  # reuse load_inventory() / credential handling
 
 SNAPSHOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "snapshots")
@@ -84,7 +85,8 @@ def capture_snapshot(task: Task, label: str) -> Result:
         conn.enable()
 
     captured = {}
-    for cmd in SNAPSHOT_COMMANDS:
+    for i, cmd in enumerate(SNAPSHOT_COMMANDS):
+        progress(f"{i}/{len(SNAPSHOT_COMMANDS)} commands ({cmd})")
         data = task.run(
             task=netmiko_send_command,
             command_string=cmd,
@@ -99,6 +101,7 @@ def capture_snapshot(task: Task, label: str) -> Result:
     path = os.path.join(SNAPSHOT_DIR, f"{safe_filename_part(task.host.name)}-{label}-{now:%Y%m%d_%H%M%S}.json")
     with open(path, "w") as fh:
         json.dump(captured, fh, indent=2, default=str)
+    note(f"{len(SNAPSHOT_COMMANDS)} commands saved")
     return Result(host=task.host, result=f"saved {path}")
 
 
@@ -424,6 +427,7 @@ def main():
             with open(args.html, "w") as fh:
                 fh.write(html)
             print(f"\nHTML diff report written to {args.html}")
+            note(f"report: {args.html}")
 
 
 if __name__ == "__main__":
